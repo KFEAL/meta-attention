@@ -173,7 +173,7 @@ Routing collapse is identified in the paper (§7) as the primary open challenge.
 
 ### Predicting the phase transition
 
-From the paper (§2.3), citing Zucchet et al. (NeurIPS 2025): routing sparsity is predicted to emerge *suddenly* (a sharp phase transition) rather than gradually. The practical implication:
+From the paper (§2.3), citing Zucchet et al. (2025): routing sparsity is predicted to emerge *suddenly* (a sharp phase transition) rather than gradually. The practical implication:
 
 > The entropy drop (rather than a fixed epoch count) should be treated as the signal that the model has learned a committed routing policy.
 

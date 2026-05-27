@@ -3,7 +3,7 @@
 This document describes the Meta-Attention mechanism as presented in the companion paper:
 
 > **Meta-Attention: Adaptive Attention Routing for Efficient Transformer Inference**  
-> Alan Ferrari · K-Lab, Zürich · NeurIPS 2025 preprint  
+> Alan Ferrari · K-Lab, Zürich  
 > [`paper/meta-attention.pdf`](../paper/meta-attention.pdf)
 
 ---
@@ -163,13 +163,13 @@ From the paper (§6, Table 3):
 
 ---
 
-## NeurIPS 2025 Context
+## Related Recent Work
 
-Three concurrent NeurIPS 2025 works sharpen the research agenda (paper §2.3):
+Three concurrent works sharpen the research agenda (paper §2.3):
 
-- **Gated Attention** (Qiu et al., NeurIPS 2025 Best Paper): Head-specific sigmoid gate after SDPA consistently improves performance and eliminates attention sinks. Natural candidate for an additional E4 expert in Phase 2.
-- **Sparse Attention Emergence** (Zucchet et al., NeurIPS 2025 Oral): Routing sparsity is predicted to emerge suddenly (phase transition), not gradually. The practical implication: monitor routing entropy, not epoch count, as the signal to transition from soft to hard routing.
-- **Polynomial-Time Learnability of Linear Attention** (Yau et al., NeurIPS 2025 Oral): E2 (linear attention) is provably polynomial-time PAC-learnable — providing theoretical backing for calibrating the cost regulariser in favour of E2 over E3 when both suffice.
+- **Gated Attention** (Qiu et al., 2025): Head-specific sigmoid gate after SDPA consistently improves performance and eliminates attention sinks. Natural candidate for an additional E4 expert in Phase 2.
+- **Sparse Attention Emergence** (Zucchet et al., 2025): Routing sparsity is predicted to emerge suddenly (phase transition), not gradually. The practical implication: monitor routing entropy, not epoch count, as the signal to transition from soft to hard routing.
+- **Polynomial-Time Learnability of Linear Attention** (Yau et al., 2025): E2 (linear attention) is provably polynomial-time PAC-learnable — providing theoretical backing for calibrating the cost regulariser in favour of E2 over E3 when both suffice.
 
 ---
 
@@ -177,9 +177,9 @@ Three concurrent NeurIPS 2025 works sharpen the research agenda (paper §2.3):
 
 Full bibliography in [`old/arxiv_package/meta_attention.bib`](../old/arxiv_package/meta_attention.bib). Key citations:
 
-- Vaswani et al., "Attention Is All You Need", NeurIPS 2017
+- Vaswani et al., "Attention Is All You Need", 2017
 - Choromanski et al., "Rethinking Attention with Performers", ICLR 2021
-- Dao et al., "FlashAttention", NeurIPS 2022
+- Dao et al., "FlashAttention", 2022
 - Fedus et al., "Switch Transformers", JMLR 2022
 - Raposo et al., "Mixture of Depths", arXiv 2024
 - Clark et al., "What Does BERT Look At?", BlackboxNLP 2019

@@ -14,7 +14,7 @@ Meta-Attention replaces the standard attention sub-layer in any transformer bloc
 The library is a direct accompaniment to the paper:
 
 > **Meta-Attention: Adaptive Attention Routing for Efficient Transformer Inference**  
-> Alan Ferrari · K-Lab, Zürich · NeurIPS 2025 preprint  
+> Alan Ferrari · K-Lab, Zürich  
 > [`paper/meta-attention.pdf`](paper/meta-attention.pdf)
 
 ---

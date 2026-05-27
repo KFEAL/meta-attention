@@ -119,7 +119,7 @@ from meta_attention.experts import AttentionExpert
 
 @register_expert("gated_full")
 class GatedFullAttention(AttentionExpert):
-    """Full attention with a sigmoid gate (Gated Attention, NeurIPS 2025)."""
+    """Full attention with a sigmoid gate (Gated Attention, Qiu et al. 2025)."""
     _cost = 1.05   # slightly above full attention due to gate overhead
 
     def __init__(self, cfg: MetaAttnConfig):
