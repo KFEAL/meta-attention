@@ -1,0 +1,9 @@
+Meta-Attention
+Copyright 2024-2025 Knoweldge Lab AG, Zurich, Switzerland
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+This software implements the Meta-Attention mechanism described in:
+  "Meta-Attention: Adaptive Per-Token Attention Routing for Efficient Inference"
+  Alan Ferrari, 2025.

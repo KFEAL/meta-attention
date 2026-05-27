@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meta-attention"
+dynamic = ["version"]
+description = "Per-token adaptive attention routing for efficient transformer inference"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [{ name = "Alan Ferrari", email = "alan.ferrari@k-lab.ch" }]
+keywords = ["attention", "transformer", "efficient", "routing", "mixture-of-experts"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "torch>=2.0.0",
+]
+
+[project.optional-dependencies]
+hf = ["transformers>=4.35.0"]
+xformers = ["xformers>=0.0.22"]
+flash = ["flash-attn>=2.0.0"]
+dev = [
+  "pytest>=7.0",
+  "pytest-cov",
+  "transformers>=4.35.0",
+]
+all = [
+  "transformers>=4.35.0",
+  "xformers>=0.0.22",
+]
+
+[project.urls]
+Homepage = "https://github.com/alanferrari/meta-attention"
+Documentation = "https://github.com/alanferrari/meta-attention#readme"
+Repository = "https://github.com/alanferrari/meta-attention"
+"Bug Tracker" = "https://github.com/alanferrari/meta-attention/issues"
+Changelog = "https://github.com/alanferrari/meta-attention/blob/main/CHANGELOG.md"
+
+[tool.setuptools.dynamic]
+version = { attr = "meta_attention._version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["meta_attention*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
