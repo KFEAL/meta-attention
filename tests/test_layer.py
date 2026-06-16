@@ -61,7 +61,6 @@ def test_cost_lambda_aux_loss():
 def test_temperature_update():
     layer = MetaAttentionLayer(CFG)
     layer.set_temperature(0.5)
-    assert layer.controller.temperature == 0.5
     assert layer.cfg.temperature == 0.5
 
 

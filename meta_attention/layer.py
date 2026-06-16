@@ -22,12 +22,12 @@ import torch
 import torch.nn as nn
 
 from .config import MetaAttnConfig
-from .controller import MetaController
+from .controller import BayesianMetaController
 from .experts.base import AttentionExpert
 from .experts.full import FullAttention
 from .experts.linear import LinearAttention
 from .experts.local import LocalAttention
-from .utils import RoutingStats, compute_routing_stats, gumbel_softmax_top_k
+from .utils import RoutingStats, compute_routing_stats, dirichlet_kl, gumbel_softmax_top_k
 
 
 class MetaAttentionLayer(nn.Module):
@@ -35,7 +35,7 @@ class MetaAttentionLayer(nn.Module):
 
     A drop-in replacement for any standard attention sub-layer.  Accepts
     ``(B, T, D)`` input and returns ``(B, T, D)`` output alongside an
-    auxiliary-loss scalar and routing diagnostics.
+    ELBO auxiliary loss and routing diagnostics.
 
     Routing modes
     -------------
@@ -43,12 +43,15 @@ class MetaAttentionLayer(nn.Module):
 
         output = Σ_i α_i(x) · E_i(x)
 
-    All experts run on every forward pass.  Fully differentiable.
+    During training ``α_t`` is sampled from Dir(β̂_t) via the
+    reparameterisation trick (when ``cfg.sample_posterior=True``).
+    At evaluation the posterior mean is used.  Fully differentiable.
 
-    **Hard routing** (``cfg.hard_routing=True``)
+    **Uncertainty-gated hard routing** (``cfg.hard_routing=True``)
 
     Training: Gumbel-softmax top-k with straight-through gradient.
-    Inference: argmax — only the winning expert runs, delivering real FLOP savings.
+    Inference: tokens with U_t < η route to argmax expert only; tokens
+    with U_t ≥ η fall back to soft (posterior-mean) merge.
 
     Custom experts
     --------------
@@ -88,7 +91,7 @@ class MetaAttentionLayer(nn.Module):
             )
         self.register_buffer("costs", torch.tensor(cfg.expert_costs, dtype=torch.float32))
 
-        self.controller = MetaController(cfg)
+        self.controller = BayesianMetaController(cfg)
 
     # ------------------------------------------------------------------
     # Forward
@@ -104,6 +107,7 @@ class MetaAttentionLayer(nn.Module):
         Parameters
         ----------
         x : (B, T, D)
+            Pre-normalised token features (LayerNorm applied in the block).
         mask:
             Optional additive attention mask ``(B, 1, T, T)`` or
             ``(1, 1, T, T)``.  0 = attend, -inf = mask out.
@@ -112,20 +116,20 @@ class MetaAttentionLayer(nn.Module):
         -------
         output : (B, T, D)
         aux_loss : scalar tensor
-            ``cost_lambda * E[cost] - entropy_coeff * H[routing]``.
-            Zero when both coefficients are 0.
+            ELBO KL term ``elbo_weight · mean_t KL[Dir(β̂_t) ‖ Dir(β)]``.
+            Zero when ``cfg.elbo_weight == 0``.
         stats : RoutingStats
-            Detached routing diagnostics.
+            Detached routing diagnostics including per-token uncertainty.
         """
-        alpha = self.controller(x)
+        alpha, beta_hat, uncertainty = self.controller(x)
 
         if self.cfg.hard_routing:
-            output = self._hard_route(x, alpha, mask)
+            output = self._hard_route(x, alpha, uncertainty, mask)
         else:
             output = self._soft_route(x, alpha, mask)
 
-        aux_loss = self._aux_loss(alpha)
-        stats = compute_routing_stats(alpha, self.costs)
+        aux_loss = self._aux_loss(beta_hat)
+        stats = compute_routing_stats(alpha, self.costs, uncertainty=uncertainty.detach())
         return output, aux_loss, stats
 
     # ------------------------------------------------------------------
@@ -145,8 +149,13 @@ class MetaAttentionLayer(nn.Module):
         self,
         x: torch.Tensor,
         alpha: torch.Tensor,
+        uncertainty: torch.Tensor,
         mask: Optional[torch.Tensor],
     ) -> torch.Tensor:
+        if not self.training:
+            return self._uncertainty_gated_route(x, alpha, uncertainty, mask)
+
+        # Training: Gumbel-softmax top-k with straight-through gradient
         logits = self.controller.net(
             torch.cat(
                 [
@@ -163,37 +172,64 @@ class MetaAttentionLayer(nn.Module):
             logits,
             k=self.cfg.hard_top_k,
             tau=self.cfg.gumbel_temp,
-            hard=not self.training,
+            hard=False,
         )
+        expert_outs = torch.stack([e(x, mask) for e in self.experts], dim=-1)
+        return (expert_outs * weights.unsqueeze(2)).sum(dim=-1)
 
-        if not self.training:
-            expert_idx = weights.argmax(dim=-1)
-            B, T, D = x.shape
-            out = torch.zeros(B, T, D, device=x.device, dtype=x.dtype)
-            for k_idx in range(len(self.experts)):
-                token_mask = (expert_idx == k_idx).unsqueeze(-1).float()
+    def _uncertainty_gated_route(
+        self,
+        x: torch.Tensor,
+        alpha: torch.Tensor,
+        uncertainty: torch.Tensor,
+        mask: Optional[torch.Tensor],
+    ) -> torch.Tensor:
+        """Inference-time routing: argmax when U_t < η, soft merge otherwise."""
+        eta = self.cfg.uncertainty_threshold
+        use_hard = uncertainty < eta   # (B, T)
+        use_soft = ~use_hard           # (B, T)
+
+        B, T, D = x.shape
+        out = torch.zeros(B, T, D, device=x.device, dtype=x.dtype)
+
+        # Hard tokens: winner-takes-all
+        if use_hard.any():
+            expert_idx = alpha.argmax(dim=-1)  # (B, T)
+            for k_idx, expert in enumerate(self.experts):
+                token_mask = (use_hard & (expert_idx == k_idx)).unsqueeze(-1).to(x.dtype)
                 if token_mask.any():
-                    out = out + self.experts[k_idx](x, mask) * token_mask
-            return out
-        else:
+                    out = out + expert(x, mask) * token_mask
+
+        # Soft tokens: posterior-mean weighted merge
+        if use_soft.any():
             expert_outs = torch.stack([e(x, mask) for e in self.experts], dim=-1)
-            return (expert_outs * weights.unsqueeze(2)).sum(dim=-1)
+            soft_out = (expert_outs * alpha.unsqueeze(2)).sum(dim=-1)
+            out = out + soft_out * use_soft.unsqueeze(-1).to(x.dtype)
+
+        return out
 
     # ------------------------------------------------------------------
-    # Auxiliary loss
+    # ELBO auxiliary loss
     # ------------------------------------------------------------------
 
-    def _aux_loss(self, alpha: torch.Tensor) -> torch.Tensor:
-        loss = alpha.new_zeros(())
+    def _aux_loss(self, beta_hat: torch.Tensor) -> torch.Tensor:
+        loss = beta_hat.new_zeros(())
 
-        if self.cfg.cost_lambda != 0.0:
-            expected_cost = (alpha * self.costs).sum(dim=-1).mean()
-            loss = loss + self.cfg.cost_lambda * expected_cost
+        if self.cfg.elbo_weight != 0.0:
+            # KL[Dir(β̂) ‖ Dir(β)] averaged over all tokens in the batch
+            kl = dirichlet_kl(beta_hat, self.controller.prior_beta)  # (B, T)
+            loss = loss + self.cfg.elbo_weight * kl.mean()
 
-        if self.cfg.entropy_coeff != 0.0:
-            eps = 1e-8
-            entropy = -(alpha * (alpha + eps).log()).sum(dim=-1).mean()
-            loss = loss - self.cfg.entropy_coeff * entropy
+        # Legacy ad-hoc terms kept for ablation (active only when elbo_weight == 0)
+        if self.cfg.elbo_weight == 0.0:
+            alpha = beta_hat / beta_hat.sum(dim=-1, keepdim=True)
+            if self.cfg.cost_lambda != 0.0:
+                expected_cost = (alpha * self.costs).sum(dim=-1).mean()
+                loss = loss + self.cfg.cost_lambda * expected_cost
+            if self.cfg.entropy_coeff != 0.0:
+                eps = 1e-8
+                entropy = -(alpha * (alpha + eps).log()).sum(dim=-1).mean()
+                loss = loss - self.cfg.entropy_coeff * entropy
 
         return loss
 
@@ -202,8 +238,7 @@ class MetaAttentionLayer(nn.Module):
     # ------------------------------------------------------------------
 
     def set_temperature(self, tau: float) -> None:
-        """Update controller routing temperature in-place (useful for annealing)."""
-        self.controller.temperature = tau
+        """Update routing temperature in-place (kept for API compatibility)."""
         self.cfg.temperature = tau
 
     def expert_names(self) -> List[str]:
