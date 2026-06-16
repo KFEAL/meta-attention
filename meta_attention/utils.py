@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import torch
@@ -43,18 +43,22 @@ class RoutingStats:
         ``mean_token( Σ_i alpha_i * cost_i )`` — average normalised FLOP.
     n_collapsed:
         Fraction of tokens where a single expert has weight > ``collapse_threshold``.
+    uncertainty:
+        Mean per-token Dirichlet entropy H[q_φ(α | x_t)] (0 when not Bayesian).
     """
 
     weights: torch.Tensor
     entropy: float
     expected_cost: float
     n_collapsed: float
+    uncertainty: float = 0.0
 
     def __repr__(self) -> str:
         w = " | ".join(f"E{i+1}={v:.3f}" for i, v in enumerate(self.weights.tolist()))
         return (
             f"RoutingStats({w}  entropy={self.entropy:.4f}"
-            f"  cost={self.expected_cost:.4f}  collapsed={self.n_collapsed:.2%})"
+            f"  cost={self.expected_cost:.4f}  collapsed={self.n_collapsed:.2%}"
+            f"  uncertainty={self.uncertainty:.4f})"
         )
 
 
@@ -62,17 +66,20 @@ def compute_routing_stats(
     alpha: torch.Tensor,
     costs: torch.Tensor,
     collapse_threshold: float = 0.9,
+    uncertainty: Optional[torch.Tensor] = None,
 ) -> RoutingStats:
     """Compute ``RoutingStats`` from a routing-weight tensor.
 
     Parameters
     ----------
     alpha : (B, T, K)
-        Softmax routing weights.
+        Routing weights (posterior mean or sampled).
     costs : (K,)
         Normalised expert costs.
     collapse_threshold:
         A token is considered "collapsed" when its max weight exceeds this.
+    uncertainty : (B, T), optional
+        Per-token Dirichlet entropy from the Bayesian controller.
     """
     with torch.no_grad():
         mean_weights = alpha.mean(dim=(0, 1))
@@ -81,12 +88,74 @@ def compute_routing_stats(
         entropy = H.mean().item()
         expected_cost = (alpha * costs).sum(dim=-1).mean().item()
         collapsed = (alpha.max(dim=-1).values > collapse_threshold).float().mean().item()
+        mean_uncertainty = uncertainty.mean().item() if uncertainty is not None else 0.0
     return RoutingStats(
         weights=mean_weights.detach().cpu(),
         entropy=entropy,
         expected_cost=expected_cost,
         n_collapsed=collapsed,
+        uncertainty=mean_uncertainty,
     )
+
+
+# ---------------------------------------------------------------------------
+# Dirichlet utilities
+# ---------------------------------------------------------------------------
+
+
+def dirichlet_entropy(beta: torch.Tensor) -> torch.Tensor:
+    """Per-token entropy H[Dir(β)] (nats).
+
+    Uses the closed form (Eq. 6 in the paper):
+
+        H = log B(β) + (Σβ_i − K) ψ₀(Σβ_i) − Σ_i (β_i − 1) ψ₀(β_i)
+
+    where B(·) is the multivariate Beta function and ψ₀ is the digamma function.
+
+    Parameters
+    ----------
+    beta : (..., K)
+        Concentration parameters, all > 0.
+
+    Returns
+    -------
+    H : (...) — same leading dims as ``beta``.
+    """
+    K = beta.shape[-1]
+    beta_sum = beta.sum(dim=-1)
+    log_B = torch.lgamma(beta).sum(dim=-1) - torch.lgamma(beta_sum)
+    H = log_B + (beta_sum - K) * torch.digamma(beta_sum) - ((beta - 1) * torch.digamma(beta)).sum(dim=-1)
+    return H
+
+
+def dirichlet_kl(beta_hat: torch.Tensor, prior_beta: torch.Tensor) -> torch.Tensor:
+    """Closed-form KL[Dir(β̂) ‖ Dir(β)] per token (Eq. 9 in the paper).
+
+        KL = log B(β)/B(β̂) + Σ_i (β̂_i − β_i) ψ₀(β̂_i) − (Σβ̂_i − Σβ_i) ψ₀(Σβ̂_i)
+
+    Parameters
+    ----------
+    beta_hat : (B, T, K)
+        Posterior concentration parameters.
+    prior_beta : (K,)
+        Prior concentration parameters.
+
+    Returns
+    -------
+    kl : (B, T)
+    """
+    beta_hat_sum = beta_hat.sum(dim=-1)          # (B, T)
+    prior_sum = prior_beta.sum()                  # scalar
+
+    log_B_prior = torch.lgamma(prior_beta).sum() - torch.lgamma(prior_sum)
+    log_B_hat = torch.lgamma(beta_hat).sum(dim=-1) - torch.lgamma(beta_hat_sum)
+
+    kl = (
+        log_B_prior - log_B_hat
+        + ((beta_hat - prior_beta) * torch.digamma(beta_hat)).sum(dim=-1)
+        - (beta_hat_sum - prior_sum) * torch.digamma(beta_hat_sum)
+    )
+    return kl
 
 
 # ---------------------------------------------------------------------------

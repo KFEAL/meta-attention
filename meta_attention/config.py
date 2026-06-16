@@ -71,16 +71,26 @@ class MetaAttnConfig:
     n_heads: int = 8
     window_size: int = 64
     dropout: float = 0.1
-    temperature: float = 1.0
     controller_hidden: int = 128
     expert_costs: List[float] = field(default_factory=lambda: [1.0, 0.15, 0.30])
-    cost_lambda: float = 0.0
-    entropy_coeff: float = 0.0
+    # --- Bayesian prior parameters ---
+    beta_0: float = 1.0
+    epsilon: float = 0.01
+    # --- ELBO training objective ---
+    elbo_weight: float = 1.0
+    # --- Posterior sampling ---
+    sample_posterior: bool = True
+    # --- Uncertainty-gated hard routing (Phase 3) ---
     use_flash: bool = True
     hard_routing: bool = False
     hard_top_k: int = 1
     gumbel_temp: float = 1.0
+    uncertainty_threshold: float = 1.0
     backend: str = "torch_sdpa"
+    # --- Legacy ad-hoc regularisation (kept for ablation; ignored when elbo_weight > 0) ---
+    cost_lambda: float = 0.0
+    entropy_coeff: float = 0.0
+    temperature: float = 1.0
 
     # ------------------------------------------------------------------
     # Derived properties

@@ -54,7 +54,7 @@ Public API
 
 from ._version import __version__
 from .config import MetaAttnConfig, MetaLMConfig
-from .controller import MetaController
+from .controller import BayesianMetaController, MetaController
 from .experts import (
     AttentionExpert,
     FullAttention,
@@ -67,7 +67,14 @@ from .experts import (
 from .layer import MetaAttentionLayer
 from .block import MetaTransformerBlock
 from .model import MetaLanguageModel
-from .utils import RoutingStats, compute_routing_stats, cosine_ramp, linear_ramp
+from .utils import (
+    RoutingStats,
+    compute_routing_stats,
+    dirichlet_entropy,
+    dirichlet_kl,
+    cosine_ramp,
+    linear_ramp,
+)
 
 __all__ = [
     "__version__",
@@ -83,6 +90,7 @@ __all__ = [
     "build_expert",
     "list_experts",
     # Core
+    "BayesianMetaController",
     "MetaController",
     "MetaAttentionLayer",
     "MetaTransformerBlock",
@@ -90,6 +98,8 @@ __all__ = [
     # Utils
     "RoutingStats",
     "compute_routing_stats",
+    "dirichlet_entropy",
+    "dirichlet_kl",
     "cosine_ramp",
     "linear_ramp",
 ]
